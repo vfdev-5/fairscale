@@ -29,7 +29,7 @@ net = nn.Sequential(
 )
 
 
-def train(args, model, device, train_loader, optimizer, epoch):
+def train(model, device, train_loader, optimizer, epoch):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
@@ -38,7 +38,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
         loss = F.nll_loss(output.to(device), target.to(device))
         loss.backward()
         optimizer.step()
-        if batch_idx % args.log_interval == 0:
+        if batch_idx:
             print(
                 "Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}".format(
                     epoch,
@@ -48,8 +48,6 @@ def train(args, model, device, train_loader, optimizer, epoch):
                     loss.item(),
                 )
             )
-            if args.dry_run:
-                break
 
 
 def test(model, device, test_loader):
@@ -85,16 +83,10 @@ def main():
     parser.add_argument("--epochs", type=int, default=14, metavar="N", help="number of epochs to train (default: 14)")
     parser.add_argument("--lr", type=float, default=1.0, metavar="LR", help="learning rate (default: 1.0)")
     parser.add_argument("--gamma", type=float, default=0.7, metavar="M", help="Learning rate step gamma (default: 0.7)")
-    parser.add_argument("--dry-run", action="store_true", default=False, help="quickly check a single pass")
     parser.add_argument("--seed", type=int, default=1, metavar="S", help="random seed (default: 1)")
-    parser.add_argument(
-        "--log-interval",
-        type=int,
-        default=10,
-        metavar="N",
-        help="how many batches to wait before logging training status",
-    )
+
     parser.add_argument("--save-model", action="store_true", default=False, help="For Saving the current Model")
+
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -103,10 +95,9 @@ def main():
     kwargs.update({"num_workers": 1, "pin_memory": True, "shuffle": True},)
 
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
-    dataset1 = datasets.MNIST("../data", train=True, download=True, transform=transform)
-    dataset2 = datasets.MNIST("../data", train=False, transform=transform)
-    train_loader = torch.utils.data.DataLoader(dataset1, **kwargs)
-    test_loader = torch.utils.data.DataLoader(dataset2, **kwargs)
+    dataset = datasets.MNIST("../data", train=True, download=True, transform=transform)
+
+    train_loader = torch.utils.data.DataLoader(dataset, **kwargs)
 
     model = net
     model = Pipe(model, balance=[6, 6], devices=[0, 1], chunks=2)
@@ -120,15 +111,6 @@ def main():
         train(args, model, device, train_loader, optimizer, epoch)
         toc = time.perf_counter()
         print(f">>> TRANING Time {toc - tic:0.4f} seconds")
-
-        tic = time.perf_counter()
-        test(model, device, test_loader)
-        toc = time.perf_counter()
-        print(f">>> TESTING Time {toc - tic:0.4f} seconds")
-        scheduler.step()
-
-    if args.save_model:
-        torch.save(model.state_dict(), "mnist_cnn.pt")
 
 
 if __name__ == "__main__":
