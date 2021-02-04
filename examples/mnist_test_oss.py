@@ -22,7 +22,6 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 from helpers import dist_init
 
 
-
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
