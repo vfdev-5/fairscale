@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from torchvision import datasets, transforms
 
 from fairscale.optim.oss import OSS
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 WORLD_SIZE = 2
 
@@ -53,9 +54,8 @@ def train(rank, model, train_loader, num_epochs):
     # SETUP
     dist_init(rank, WORLD_SIZE)
 
-    device = torch.device("cpu") if DEVICE == "cpu" else rank  # type:ignore
-
-    model = model.to(device)
+    model = model.to(rank)
+    model = DDP(model, device_ids=[rank])
 
     optimizer = OSS(
         params=model.parameters(),
@@ -73,7 +73,7 @@ def train(rank, model, train_loader, num_epochs):
     for epoch in range(num_epochs):
         epoch_start = time.monotonic()
         for batch_idx, (data, target) in enumerate(train_loader):
-            data, target = data.to(device), target.to(device)
+            data, target = data.to(rank), target.to(rank)
 
             model.zero_grad()
             outputs = model(data)
@@ -96,7 +96,7 @@ def main():
     parser.add_argument(
         "--batch-size", type=int, default=64, metavar="N", help="input batch size for training (default: 64)"
     )
-    parser.add_argument("--epochs", type=int, default=14, metavar="N", help="number of epochs to train (default: 14)")
+    parser.add_argument("--epochs", type=int, default=4, metavar="N", help="number of epochs to train (default: 14)")
     parser.add_argument("--no-cuda", action="store_true", default=False, help="disables CUDA training")
     parser.add_argument("--seed", type=int, default=1, metavar="S", help="random seed (default: 1)")
     parser.add_argument("--save-model", action="store_true", default=False, help="For Saving the current Model")

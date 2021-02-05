@@ -50,42 +50,16 @@ def train(model, device, train_loader, optimizer, epoch):
             )
 
 
-def test(model, device, test_loader):
-    model.eval()
-    test_loss = 0
-    correct = 0
-    with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            test_loss += F.nll_loss(output.to(device), target.to(device), reduction="sum").item()  # sum up batch loss
-            pred = output.argmax(dim=1, keepdim=True).to(device)  # get the index of the max log-probability
-            correct += pred.eq(target.view_as(pred)).sum().item()
-
-    test_loss /= len(test_loader.dataset)
-
-    print(
-        "\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n".format(
-            test_loss, correct, len(test_loader.dataset), 100.0 * correct / len(test_loader.dataset)
-        )
-    )
-
-
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description="PyTorch MNIST Example")
     parser.add_argument(
         "--batch-size", type=int, default=64, metavar="N", help="input batch size for training (default: 64)"
     )
-    parser.add_argument(
-        "--test-batch-size", type=int, default=1000, metavar="N", help="input batch size for testing (default: 1000)"
-    )
-    parser.add_argument("--epochs", type=int, default=14, metavar="N", help="number of epochs to train (default: 14)")
+    parser.add_argument("--epochs", type=int, default=4, metavar="N", help="number of epochs to train (default: 14)")
     parser.add_argument("--lr", type=float, default=1.0, metavar="LR", help="learning rate (default: 1.0)")
     parser.add_argument("--gamma", type=float, default=0.7, metavar="M", help="Learning rate step gamma (default: 0.7)")
     parser.add_argument("--seed", type=int, default=1, metavar="S", help="random seed (default: 1)")
-
-    parser.add_argument("--save-model", action="store_true", default=False, help="For Saving the current Model")
 
     args = parser.parse_args()
 
@@ -100,15 +74,15 @@ def main():
     train_loader = torch.utils.data.DataLoader(dataset, **kwargs)
 
     model = net
-    model = Pipe(model, balance=[6, 6], devices=[0, 1], chunks=2)
-    device = model.devices[0]
+    pipe_model = Pipe(model, balance=[6, 6], devices=[0, 1], chunks=2)
+    device = pipe_model.devices[0]
 
-    optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
+    optimizer = optim.Adadelta(pipe_model.parameters(), lr=args.lr)
 
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
     for epoch in range(1, args.epochs + 1):
         tic = time.perf_counter()
-        train(args, model, device, train_loader, optimizer, epoch)
+        train(pipe_model, device, train_loader, optimizer, epoch)
         toc = time.perf_counter()
         print(f">>> TRANING Time {toc - tic:0.4f} seconds")
 

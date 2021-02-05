@@ -7,6 +7,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 from fairscale.optim.oss import OSS
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 WORLD_SIZE = 2
 EPOCHS = 3
@@ -18,10 +19,10 @@ def train(rank: int, world_size: int, epochs: int, use_oss: bool):
 
     # DDP
     dist_init(rank, world_size)
-    device = torch.device("cpu") if DEVICE == "cpu" else rank  # type:ignore
 
-    # Problem statement
-    model = get_model().to(device)
+    model = model.to(rank)
+    model = DDP(model, device_ids=[rank])
+
     dataloader = get_data(n_batches=1)
     loss_fn = get_loss_fun()
 
@@ -42,7 +43,7 @@ def train(rank: int, world_size: int, epochs: int, use_oss: bool):
 
     for _ in range(epochs):
         for (data, target) in dataloader:
-            data, target = data.to(device), target.to(device)
+            data, target = data.to(rank), target.to(rank)
 
             # Train
             model.zero_grad()
