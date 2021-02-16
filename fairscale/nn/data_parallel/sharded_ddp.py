@@ -205,6 +205,7 @@ class ShardedDataParallel(nn.Module):
 
         # Reset all the grad reduce and bucket state flags
         self._clear_counters()
+        print(f"{self.rank} - FW")
 
         # Normal FW on the base model
         return self.module(*inputs, **kwargs)
@@ -370,6 +371,7 @@ class ShardedDataParallel(nn.Module):
             def reduce(*_: Any) -> None:
                 # Skip gradient reduction, do not alter status flags
                 if not self.should_accumulate_grads and self._grad_to_be_reduced[index]:
+                    print(f"{self.rank} - reduce", flush=True)
                     assert param.grad is not None, "Reducing gradients during backward pass, cannot be None"
 
                     # Make sure that this is not fired twice
@@ -400,6 +402,8 @@ class ShardedDataParallel(nn.Module):
                     # and execute the delayed actions (release gradients, unroll the buckets)
                     if self._reduced_grads == self._reduced_grads_max:
                         self._consume_work_handles()
+                else:
+                    print(f"{self.rank} - skip reduce", flush=True)
 
         else:
 
@@ -407,6 +411,8 @@ class ShardedDataParallel(nn.Module):
             def reduce(*_: Any) -> None:
                 # Skip gradient reduction, do not alter status flags
                 if not self.should_accumulate_grads and self._grad_to_be_reduced[index]:
+                    print(f"{self.rank} - reduce", flush=True)
+
                     assert param.grad is not None, "Reducing gradients during backward pass, cannot be None"
 
                     # Make sure that this is not fired twice
@@ -438,6 +444,8 @@ class ShardedDataParallel(nn.Module):
                     # and execute the delayed actions (release gradients, unroll the buckets)
                     if self._reduced_grads == self._reduced_grads_max:
                         self._consume_work_handles()
+                else:
+                    print(f"{self.rank} - skip reduce", flush=True)
 
         return reduce
 

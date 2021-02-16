@@ -19,6 +19,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn import Linear, Sequential
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
 from fairscale.nn.data_parallel import ShardedDataParallel
 from fairscale.optim import OSS
@@ -550,3 +551,44 @@ def test_gpt2():
     temp_file_name = tempfile.mkstemp()[1]
     device = "cuda"
     mp.spawn(run_test_gpt2, args=(world_size, backend, device, temp_file_name), nprocs=world_size, join=True)
+
+
+def checkpoint_twice(rank, world_size, backend, device, temp_file_name):
+    url = "file://" + temp_file_name
+    dist.init_process_group(init_method=url, backend=backend, rank=rank, world_size=world_size)
+    if device == torch.device("cuda"):
+        torch.cuda.set_device(rank)
+
+    # get the model, wrap with DDP and fwd, bwd.
+    class M(torch.nn.Module):
+        def __init__(self):
+            super(M, self).__init__()
+            # The size 2000 is important. Without bigger size, it doesn't trigger the RuntimeError!
+            self.l1 = Linear(2000, 2000)
+            self.l2 = Linear(2000, 2000)
+
+        def forward(self, inp):
+            x = self.l1(inp)
+            x = torch_checkpoint(self.l2, x)
+            x = torch_checkpoint(self.l2, x)
+            return x
+
+    model = M()
+    model.to(device)
+    optimizer = OSS(params=model.parameters(), optim=torch.optim.SGD, lr=0.01, momentum=0.99)
+    model = ShardedDataParallel(model, optimizer)
+    input_tensor = torch.rand((64, 2000)).cuda()
+    output_tensor = model(input_tensor)
+    try:
+        output_tensor.sum().backward()
+    except RuntimeError:
+        return
+    assert 0
+
+
+def test_checkpoint():
+    world_size = 2
+    temp_file_name = tempfile.mkstemp()[1]
+    device = "cuda"
+    backend = "gloo"
+    mp.spawn(checkpoint_twice, args=(world_size, backend, device, temp_file_name), nprocs=world_size, join=True)
