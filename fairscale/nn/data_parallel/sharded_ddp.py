@@ -23,6 +23,8 @@ from torch.nn import Parameter
 from fairscale.optim import OSS
 from fairscale.optim.utils import Bucket, Workhandle
 
+_use_nccl_futures = True
+
 
 def _trainable(param: torch.Tensor) -> bool:
     return param.requires_grad
@@ -393,25 +395,34 @@ class ShardedDataParallel(nn.Module):
                         if dst_rank != self.global_rank:
                             param.grad = None
 
-                    # Async reduce for this buffer, log the future
-                    self._work_handles.append(
-                        Workhandle(
-                            handle=dist.reduce(
-                                tensor=param.grad.data, dst=dst_rank, group=self.process_group, async_op=True
-                            ),
-                            callback=cleanup,
+                    if _use_nccl_futures:
+                        self._work_handles.append(
+                            Workhandle(
+                                handle=dist.reduce(param.grad.data, dst_rank, async_op=True).get_future().then(cleanup),
+                                callback=None,
+                            )
                         )
-                    )
-                    self._reduced_grads += 1
 
-                    # Opportunistically try to empty the queue
-                    self._try_consume_work_handle()
+                    else:
+                        # Async reduce for this buffer, log the future
+                        self._work_handles.append(
+                            Workhandle(
+                                handle=dist.reduce(
+                                    tensor=param.grad.data, dst=dst_rank, group=self.process_group, async_op=True
+                                ),
+                                callback=cleanup,
+                            )
+                        )
+                        self._reduced_grads += 1
 
-                    # If all the reduce operations have been called,
-                    # make sure that all the asynchronous calls have concluded before moving on
-                    # and execute the delayed actions (release gradients, unroll the buckets)
-                    if self._reduced_grads == self._reduced_grads_max:
-                        self._consume_work_handles()
+                        # Opportunistically try to empty the queue
+                        self._try_consume_work_handle()
+
+                        # If all the reduce operations have been called,
+                        # make sure that all the asynchronous calls have concluded before moving on
+                        # and execute the delayed actions (release gradients, unroll the buckets)
+                        if self._reduced_grads == self._reduced_grads_max:
+                            self._consume_work_handles()
 
         else:
 
@@ -432,6 +443,7 @@ class ShardedDataParallel(nn.Module):
 
                         # Reduce the bucket
                         bucket.sent = True
+
                         self._work_handles.append(
                             Workhandle(
                                 handle=dist.reduce(
